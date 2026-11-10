@@ -53,7 +53,8 @@ textarea.edit{position:absolute;font:14px Arial,Helvetica,sans-serif;text-align:
     <button id="bDownload" title="Diagramm als PNG-Datei speichern">Bild herunterladen</button>
   </div>
   <div class="group">
-    <button id="bCopyCode" class="on" title="Diagramm als Text-Code für die Abgabe">Code für die Abgabe</button>
+    <button id="bHandImg" class="on" title="Diagramm als Bild für die Abgabe">Bild für die Abgabe</button>
+    <button id="bCopyCode" title="Diagramm als Text-Code">Code für die Abgabe</button>
     <button id="bLoad" title="Ein Diagramm aus einem Code laden">Code laden</button>
   </div>
 </header>
@@ -80,6 +81,15 @@ textarea.edit{position:absolute;font:14px Arial,Helvetica,sans-serif;text-align:
      <b>3.</b> Prüfen Sie, ob der Code in der Antwort steht. Er beginnt mit «FD1:».</p>
   <textarea id="tCode" readonly spellcheck="false"></textarea>
   <div class="row"><button id="bSelCode">Code neu markieren</button><button data-close class="on">Schliessen</button></div>
+</div></div>
+
+<div class="panel" id="pHand"><div class="box">
+  <h2>Bild für die Abgabe</h2>
+  <p><b>1.</b> Das Bild unten ist markiert. Drücken Sie jetzt <b>⌘C</b> (Mac) bzw. <b>Strg+C</b> (Windows).<br>
+     <b>2.</b> Schliessen Sie dieses Fenster, gehen Sie zur Frage und fügen Sie das Bild mit <b>⌘V</b> bzw. <b>Strg+V</b> ein.<br>
+     <b>3.</b> Prüfen Sie, ob das Bild in Ihrer Antwort erscheint.</p>
+  <div id="handImg" style="border:1px solid var(--line);border-radius:6px;padding:6px;overflow:auto;max-height:55vh;text-align:center"></div>
+  <div class="row"><button id="bSelImg">Bild neu markieren</button><button data-close class="on">Schliessen</button></div>
 </div></div>
 
 <div class="panel" id="pImg"><div class="box">
@@ -629,6 +639,30 @@ document.getElementById('bCopyCode').onclick = function(){
   try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).catch(function(){}); } catch(e){}
 };
 document.getElementById('bSelCode').onclick = selectCode;
+
+// Hand-in as picture: the image is shown selected; the student copies it with the keyboard.
+function selectHandImg(){
+  var img = document.querySelector('#handImg img'); if (!img) return;
+  window.focus();
+  var r = document.createRange(); r.selectNode(img);
+  var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+}
+document.getElementById('bHandImg').onclick = function(){
+  if (!requireContent()) return;
+  var s = svgString();
+  pngDataURL().then(function(url){
+    var box = document.getElementById('handImg');
+    box.innerHTML = '';
+    var img = document.createElement('img');
+    var w = Math.min(Math.round(s.w), 640), h = Math.round(s.h * w / s.w);
+    img.src = url; img.alt = 'Flussdiagramm'; img.width = w; img.height = h;
+    img.style.maxWidth = 'none'; img.style.border = '0';
+    box.appendChild(img);
+    document.getElementById('pHand').classList.add('show');
+    selectHandImg();
+  }).catch(function(){ status('Das Bild konnte nicht erzeugt werden.'); });
+};
+document.getElementById('bSelImg').onclick = selectHandImg;
 document.getElementById('bLoad').onclick = function(){
   document.getElementById('tLoad').value = ''; document.getElementById('loadErr').textContent = '';
   document.getElementById('pLoad').classList.add('show');
@@ -655,7 +689,10 @@ Array.prototype.forEach.call(document.querySelectorAll('header button'), functio
 });
 
 // Exam mode (?pruefung): only the code hand-in, no image buttons (downloads are blocked in SEB).
-if (/[?&]pruefung\b/.test(location.search)) document.getElementById('gImg').style.display = 'none';
+if (/[?&]pruefung\b/.test(location.search)){
+  document.getElementById('gImg').style.display = 'none';
+  document.getElementById('bCopyCode').style.display = 'none';
+}
 
 // ---------- start ----------
 try { var saved = localStorage.getItem(STORE); if (saved){ st = JSON.parse(saved); fixId(); } } catch(e){}
