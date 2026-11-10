@@ -48,17 +48,19 @@ textarea.edit{position:absolute;font:14px Arial,Helvetica,sans-serif;text-align:
     <button id="bUndo" title="Rückgängig (Strg+Z)">Rückgängig</button>
     <button id="bClear">Alles löschen</button>
   </div>
-  <div class="group">
+  <div class="group" id="gImg">
     <button id="bCopyImg" title="Diagramm als Bild in die Zwischenablage kopieren">Bild kopieren</button>
     <button id="bDownload" title="Diagramm als PNG-Datei speichern">Bild herunterladen</button>
-    <button id="bCopyCode" title="Diagramm als Text-Code kopieren">Code kopieren</button>
+  </div>
+  <div class="group">
+    <button id="bCopyCode" class="on" title="Diagramm als Text-Code für die Abgabe">Code für die Abgabe</button>
     <button id="bLoad" title="Ein Diagramm aus einem Code laden">Code laden</button>
   </div>
 </header>
 <div id="hint">
   <span>Doppelklick: Text ändern</span>
   <span>Pfeil: zuerst Ausgangsbaustein, dann Ziel anklicken</span>
-  <span>Ausgewählten Pfeil am Punkt ziehen: biegen</span>
+  <span>Ausgewählten Pfeil am Punkt ziehen: verschieben</span>
   <span id="status"></span>
 </div>
 <div id="wrap"><svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg></div>
@@ -72,10 +74,12 @@ textarea.edit{position:absolute;font:14px Arial,Helvetica,sans-serif;text-align:
 </div></div>
 
 <div class="panel" id="pCode"><div class="box">
-  <h2>Code</h2>
-  <p>Das automatische Kopieren hat nicht geklappt. Markieren Sie den Code (Strg+A) und kopieren Sie ihn (Strg+C).</p>
+  <h2>Code für die Abgabe</h2>
+  <p><b>1.</b> Der Code unten ist markiert. Drücken Sie jetzt <b>⌘C</b> (Mac) bzw. <b>Strg+C</b> (Windows).<br>
+     <b>2.</b> Schliessen Sie dieses Fenster, gehen Sie zur Frage und fügen Sie den Code mit <b>⌘V</b> bzw. <b>Strg+V</b> ein.<br>
+     <b>3.</b> Prüfen Sie, ob der Code in der Antwort steht. Er beginnt mit «FD1:».</p>
   <textarea id="tCode" readonly spellcheck="false"></textarea>
-  <div class="row"><button data-close>Schliessen</button></div>
+  <div class="row"><button id="bSelCode">Code neu markieren</button><button data-close class="on">Schliessen</button></div>
 </div></div>
 
 <div class="panel" id="pImg"><div class="box">
@@ -187,23 +191,69 @@ function clip(n, dx, dy){
   for (var i=0;i<24;i++){ var mid=(lo+hi)/2; if (inside(n,d,ux*mid,uy*mid)) lo=mid; else hi=mid; }
   return {x:n.x+ux*hi, y:n.y+uy*hi};
 }
-function handlePoint(e, a, b){
-  var mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
-  return e.off ? {x:mx+e.off.x, y:my+e.off.y} : null;
+// Orthogonal routing, like a textbook flowchart:
+//  - target clearly below: straight down, or down – across – down (kind 'y': the middle can be dragged up/down)
+//  - target not below (loop back, Schleife): out sideways, along a vertical channel, in sideways (kind 'x')
+//  - the second exit of a Verzweigung leaves through a side corner
+var GAP = 34;
+function ports(n){
+  return {d:dims(n), top:clip(n,0,-1), bottom:clip(n,0,1), left:clip(n,-1,0), right:clip(n,1,0)};
+}
+function aligned(a, b){ return Math.abs(a.x-b.x) < 6; }
+function isBelow(A, B){ return B.top.y - A.bottom.y >= 20; }
+function decUsesSide(e, a){
+  // a Verzweigung has one bottom exit: the oldest edge whose target lies straight below
+  return st.edges.some(function(e2){
+    if (e2.from!==e.from || e2.id>=e.id) return false;
+    var b2 = node(e2.to); if (!b2) return false;
+    return aligned(a,b2) && isBelow(ports(a), ports(b2));
+  });
 }
 function edgeGeom(e){
   var a=node(e.from), b=node(e.to); if (!a||!b) return null;
-  var m = handlePoint(e,a,b);
-  var ta = m || b, tb = m || a;
-  var p0 = clip(a, ta.x-a.x, ta.y-a.y), p2 = clip(b, tb.x-b.x, tb.y-b.y);
-  if (!m){
-    return {d:'M'+p0.x+' '+p0.y+' L'+p2.x+' '+p2.y, mid:{x:(p0.x+p2.x)/2,y:(p0.y+p2.y)/2},
-            lab:{x:p0.x+(p2.x-p0.x)*0.25, y:p0.y+(p2.y-p0.y)*0.25}};
+  var A=ports(a), B=ports(b), o=e.off, pts, kind=null, sideR;
+  var above = A.top.y - B.bottom.y >= 20;
+  var gapR = B.left.x - A.right.x, gapL = A.left.x - B.right.x;
+  if (!isBelow(A,B) && !above && (gapR >= 20 || gapL >= 20)){
+    // side by side: straight across (with a step if the heights differ)
+    sideR = gapR >= 20;
+    var sA = sideR?A.right:A.left, sB = sideR?B.left:B.right;
+    var mx = o ? a.x+o.x : (sA.x+sB.x)/2;
+    if (Math.abs(sA.y-sB.y) < 6) pts = [sA, sB];
+    else { pts = [sA, {x:mx,y:sA.y}, {x:mx,y:sB.y}, sB]; kind = 'x'; }
+  } else if (!isBelow(A,B)){
+    // loops go back on the left by default (the second exit of a Verzweigung uses the right)
+    var defX = Math.min(a.x-A.d.w/2, b.x-B.d.w/2) - GAP;
+    var cx = o ? a.x+o.x : defX;
+    sideR = cx >= (a.x+b.x)/2;
+    var pA = sideR?A.right:A.left, pB = sideR?B.right:B.left;
+    pts = [pA, {x:cx,y:pA.y}, {x:cx,y:pB.y}, pB]; kind = 'x';
+  } else if (a.type==='dec' && (!aligned(a,b) || decUsesSide(e,a))){
+    sideR = aligned(a,b) ? !(o && o.x < 0) : b.x > a.x;
+    var pS = sideR?A.right:A.left;
+    if (!aligned(a,b) && (sideR ? b.x > pS.x+10 : b.x < pS.x-10)){
+      pts = [pS, {x:b.x,y:pS.y}, B.top];
+    } else {
+      var ex = sideR ? Math.max(pS.x, b.x+B.d.w/2)+GAP : Math.min(pS.x, b.x-B.d.w/2)-GAP;
+      var cx2 = o ? a.x+o.x : ex;
+      var pB2 = sideR?B.right:B.left;
+      pts = [pS, {x:cx2,y:pS.y}, {x:cx2,y:pB2.y}, pB2]; kind = 'x';
+    }
+  } else if (aligned(a,b)){
+    pts = [A.bottom, B.top];
+  } else {
+    var my = o ? a.y+o.y : (A.bottom.y+B.top.y)/2;
+    my = Math.max(A.bottom.y+12, Math.min(B.top.y-12, my));
+    pts = [A.bottom, {x:a.x,y:my}, {x:b.x,y:my}, B.top]; kind = 'y';
   }
-  var c = {x:2*m.x-(p0.x+p2.x)/2, y:2*m.y-(p0.y+p2.y)/2};
-  var t=0.25, u=1-t;
-  return {d:'M'+p0.x+' '+p0.y+' Q'+c.x+' '+c.y+' '+p2.x+' '+p2.y, mid:m,
-          lab:{x:u*u*p0.x+2*u*t*c.x+t*t*p2.x, y:u*u*p0.y+2*u*t*c.y+t*t*p2.y}};
+  var d = 'M' + pts.map(function(p){ return p.x+' '+p.y; }).join(' L');
+  var mid = kind ? {x:(pts[1].x+pts[2].x)/2, y:(pts[1].y+pts[2].y)/2}
+                 : {x:(pts[0].x+pts[1].x)/2, y:(pts[0].y+pts[1].y)/2};
+  // label next to the start of the first segment
+  var tw = mctx.measureText(e.label||'').width, p0 = pts[0], p1 = pts[1], lab;
+  if (Math.abs(p1.y-p0.y) > Math.abs(p1.x-p0.x)) lab = {x:p0.x + tw/2 + 12, y:p0.y + 16};
+  else lab = {x:p0.x + (p1.x>p0.x?1:-1)*(tw/2 + 10), y:p0.y - 14};
+  return {d:d, pts:pts, kind:kind, mid:mid, lab:lab};
 }
 
 // ---------- drawing ----------
@@ -257,7 +307,7 @@ function render(target, exporting){
         lg.addEventListener('dblclick', function(ev){ ev.stopPropagation(); editLabel(e, g.lab); });
       }
     }
-    if (isSel){
+    if (isSel && g.kind){
       var h = el('circle', {cx:g.mid.x, cy:g.mid.y, r:7, fill:'#ffffff', stroke:'#2563eb', 'stroke-width':2, style:'cursor:move'}, labLayer);
       h.addEventListener('pointerdown', function(ev){ ev.stopPropagation(); hdrag = {id:e.id, moved:false}; });
       h.addEventListener('dblclick', function(ev){ ev.stopPropagation(); snapshot(); e.off=null; render(); save(); });
@@ -314,10 +364,10 @@ window.addEventListener('pointermove', function(ev){
     render();
   } else if (hdrag){
     var e = edge(hdrag.id); if (!e) return;
-    var a=node(e.from), b=node(e.to), p2=pt(ev);
+    var a = node(e.from), g = edgeGeom(e), p2 = pt(ev);
+    if (!a || !g || !g.kind) return;
     if (!hdrag.moved){ snapshot(); hdrag.moved = true; }
-    e.off = {x:p2.x-(a.x+b.x)/2, y:p2.y-(a.y+b.y)/2};
-    if (Math.abs(e.off.x)<8 && Math.abs(e.off.y)<8) e.off = null;
+    e.off = g.kind==='x' ? {x:snap(p2.x)-a.x, y:0} : {x:0, y:snap(p2.y)-a.y};
     render();
   }
 });
@@ -443,10 +493,8 @@ function bbox(){
   st.nodes.forEach(function(n){ var d=dims(n); add(n.x-d.w/2,n.y-d.h/2); add(n.x+d.w/2,n.y+d.h/2); });
   st.edges.forEach(function(e){
     var g = edgeGeom(e); if (!g) return;
-    add(g.mid.x-10,g.mid.y-10); add(g.mid.x+10,g.mid.y+10);
+    g.pts.forEach(function(p){ add(p.x-8,p.y-8); add(p.x+8,p.y+8); });
     if (e.label){ var tw=mctx.measureText(e.label).width; add(g.lab.x-tw/2-6,g.lab.y-12); add(g.lab.x+tw/2+6,g.lab.y+12); }
-    var a=node(e.from), b=node(e.to), m=handlePoint(e,a,b);
-    if (m){ var c={x:2*m.x-(a.x+b.x)/2, y:2*m.y-(a.y+b.y)/2}; add((m.x+c.x)/2,(m.y+c.y)/2); }
   });
   var pad = 24;
   return {x:x0-pad, y:y0-pad, w:x1-x0+2*pad, h:y1-y0+2*pad};
@@ -569,14 +617,18 @@ function legacyCopy(text){
   ta.select(); var ok = false; try { ok = document.execCommand('copy'); } catch(e){}
   document.body.removeChild(ta); return ok;
 }
+// Hand-in: show the code selected so the student copies it with the keyboard.
+// (Inside an exam the automatic clipboard is often blocked, so we never rely on it.)
+function selectCode(){ var t = document.getElementById('tCode'); t.focus(); t.select(); t.setSelectionRange(0, t.value.length); }
 document.getElementById('bCopyCode').onclick = function(){
   if (!requireContent()) return;
   var code = encode();
-  copyText(code).then(function(ok){
-    if (ok) status('Code kopiert. In der Antwort mit Strg+V einfügen.');
-    else { var t = document.getElementById('tCode'); t.value = code; document.getElementById('pCode').classList.add('show'); t.focus(); t.select(); }
-  });
+  document.getElementById('tCode').value = code;
+  document.getElementById('pCode').classList.add('show');
+  selectCode();
+  try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).catch(function(){}); } catch(e){}
 };
+document.getElementById('bSelCode').onclick = selectCode;
 document.getElementById('bLoad').onclick = function(){
   document.getElementById('tLoad').value = ''; document.getElementById('loadErr').textContent = '';
   document.getElementById('pLoad').classList.add('show');
@@ -601,6 +653,9 @@ Array.prototype.forEach.call(document.querySelectorAll('header button'), functio
   b.addEventListener('mousedown', function(ev){ ev.preventDefault(); });
   b.addEventListener('pointerdown', function(){ closeEditor(true); }, true);
 });
+
+// Exam mode (?pruefung): only the code hand-in, no image buttons (downloads are blocked in SEB).
+if (/[?&]pruefung\b/.test(location.search)) document.getElementById('gImg').style.display = 'none';
 
 // ---------- start ----------
 try { var saved = localStorage.getItem(STORE); if (saved){ st = JSON.parse(saved); fixId(); } } catch(e){}
