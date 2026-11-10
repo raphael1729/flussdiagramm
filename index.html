@@ -770,14 +770,18 @@ if (/[?&]pruefung\b/.test(location.search)){
   ['bCopyImg','bHandImg','bCopyCode'].forEach(function(id){ document.getElementById(id).style.display = 'none'; });
   var dl = document.getElementById('bDownload');
   dl.textContent = 'PDF für die Abgabe speichern'; dl.title = 'Diagramm als PDF-Datei speichern'; dl.classList.add('on');
-  // TEMPORARY (10.11.): three variants to find out which one SEB saves with the .pdf extension
-  [['A','application/pdf'],['B','application/x-pdf'],['C','application/octet-stream']].forEach(function(v){
+  // TEMPORARY (10.11.): data: URLs lose the file name in SEB ("Untitled_…").
+  // The PNG download (blob: URL, type image/png) kept its name, so try that route for the PDF.
+  [['D','image/png'],['E','application/x-pdf']].forEach(function(v){
     var b = document.createElement('button');
     b.textContent = 'Test ' + v[0]; b.title = v[1];
     b.addEventListener('mousedown', function(ev){ ev.preventDefault(); });
     b.onclick = function(){
       if (!requireContent()) return;
-      jpegFromDiagram().then(function(jpg){ return downloadAsDataURL(buildPdf(jpg), 'flussdiagramm-' + v[0] + '.pdf', v[1]); })
+      jpegFromDiagram().then(function(jpg){
+        var pdf = buildPdf(jpg);
+        downloadBlob(new Blob([pdf], {type:v[1]}), 'flussdiagramm-' + v[0] + '.pdf');
+      })
         .then(function(){ status('Test ' + v[0] + ' gespeichert.'); })
         .catch(function(){ status('Test ' + v[0] + ': Fehler.'); });
     };
