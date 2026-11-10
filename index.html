@@ -575,8 +575,65 @@ function fallbackImg(urlP){
     else showImgPanel(url);
   }).catch(function(){ status('Das Bild konnte nicht erzeugt werden.'); });
 }
+// ---------- PDF (one A4 page, diagram as JPEG, no library) ----------
+function jpegFromDiagram(){
+  return new Promise(function(resolve, reject){
+    var s = svgString(); if (!s){ reject(new Error('leer')); return; }
+    var img = new Image();
+    img.onload = function(){
+      var scale = 2, c = document.createElement('canvas');
+      c.width = Math.ceil(s.w*scale); c.height = Math.ceil(s.h*scale);
+      var ctx = c.getContext('2d'); ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,c.width,c.height);
+      ctx.scale(scale, scale); ctx.drawImage(img, 0, 0);
+      var url = c.toDataURL('image/jpeg', 0.92), bin = atob(url.split(',')[1]), bytes = new Uint8Array(bin.length);
+      for (var i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+      resolve({bytes:bytes, w:c.width, h:c.height});
+    };
+    img.onerror = function(){ reject(new Error('render')); };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s.str);
+  });
+}
+function buildPdf(jpg){
+  var landscape = jpg.w > jpg.h*1.15;
+  var PW = landscape ? 842 : 595, PH = landscape ? 595 : 842, M = 40;
+  // natural size: 2 canvas px = 1 CSS px = 0.75 pt; shrink to fit, never enlarge
+  var nat = 0.375, k = Math.min(nat, (PW-2*M)/jpg.w, (PH-2*M)/jpg.h);
+  var iw = jpg.w*k, ih = jpg.h*k, x = (PW-iw)/2, y = PH-M-ih;
+  var enc = new TextEncoder(), parts = [], offsets = [], len = 0;
+  function push(x){ var b = typeof x==='string' ? enc.encode(x) : x; parts.push(b); len += b.length; }
+  function obj(n, body){ offsets[n] = len; push(n+' 0 obj\n'); body(); push('\nendobj\n'); }
+  push('%PDF-1.4\n%âãÏÓ\n');
+  var content = 'q '+iw.toFixed(2)+' 0 0 '+ih.toFixed(2)+' '+x.toFixed(2)+' '+y.toFixed(2)+' cm /Im0 Do Q';
+  obj(1, function(){ push('<< /Type /Catalog /Pages 2 0 R >>'); });
+  obj(2, function(){ push('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'); });
+  obj(3, function(){ push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+PW+' '+PH+'] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>'); });
+  obj(4, function(){ push('<< /Length '+content.length+' >>\nstream\n'+content+'\nendstream'); });
+  obj(5, function(){
+    push('<< /Type /XObject /Subtype /Image /Width '+jpg.w+' /Height '+jpg.h+' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+jpg.bytes.length+' >>\nstream\n');
+    push(jpg.bytes); push('\nendstream');
+  });
+  var xref = len, xr = 'xref\n0 6\n0000000000 65535 f \n';
+  for (var n=1;n<=5;n++) xr += String(offsets[n]).padStart(10,'0')+' 00000 n \n';
+  push(xr + 'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF\n');
+  return new Blob(parts, {type:'application/pdf'});
+}
+function downloadBlob(blob, name){
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 5000);
+}
+var PDF_MODE = /[?&]pruefung\b/.test(location.search);
+
 document.getElementById('bDownload').onclick = function(){
   if (!requireContent()) return;
+  if (PDF_MODE){
+    jpegFromDiagram().then(function(jpg){
+      downloadBlob(buildPdf(jpg), 'flussdiagramm.pdf');
+      status('Gespeichert als «flussdiagramm.pdf» (Ordner «Downloads»). Laden Sie die Datei jetzt bei der Frage hoch.');
+    }).catch(function(){ status('Das PDF konnte nicht erzeugt werden.'); });
+    return;
+  }
   pngDataURL().then(function(url){
     var blob = dataURLtoBlob(url), a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = 'flussdiagramm.png';
@@ -689,12 +746,13 @@ Array.prototype.forEach.call(document.querySelectorAll('header button'), functio
 });
 
 // Exam mode (?pruefung): only the code hand-in, no image buttons (downloads are blocked in SEB).
-// Exam mode (?pruefung): hand-in = download the picture, then upload it in the exam.
-// (exam.net blocks copy & paste in exams; downloads work if "Student uploads – via computer files" is on.)
+// Exam mode (?pruefung): hand-in = download a PDF, then upload it in the exam.
+// (exam.net blocks copy & paste in exams; downloads work if "Student uploads – via computer files" is on;
+//  the upload question is restricted to PDF, which students cannot open during the exam.)
 if (/[?&]pruefung\b/.test(location.search)){
   ['bCopyImg','bHandImg','bCopyCode'].forEach(function(id){ document.getElementById(id).style.display = 'none'; });
   var dl = document.getElementById('bDownload');
-  dl.textContent = 'Bild für die Abgabe speichern'; dl.classList.add('on');
+  dl.textContent = 'PDF für die Abgabe speichern'; dl.title = 'Diagramm als PDF-Datei speichern'; dl.classList.add('on');
 }
 
 // ---------- start ----------
