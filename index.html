@@ -615,7 +615,8 @@ function buildPdf(jpg){
   var xref = len, xr = 'xref\n0 6\n0000000000 65535 f \n';
   for (var n=1;n<=5;n++) xr += String(offsets[n]).padStart(10,'0')+' 00000 n \n';
   push(xr + 'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF\n');
-  return new Blob(parts, {type:'application/pdf'});
+  // octet-stream, not application/pdf: SEB (WebKit) would otherwise show the PDF inline instead of saving it
+  return new Blob(parts, {type:'application/octet-stream'});
 }
 function downloadBlob(blob, name){
   var a = document.createElement('a');
