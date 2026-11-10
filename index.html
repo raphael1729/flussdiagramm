@@ -582,7 +582,7 @@ document.getElementById('bDownload').onclick = function(){
     a.href = URL.createObjectURL(blob); a.download = 'flussdiagramm.png';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(function(){ URL.revokeObjectURL(a.href); }, 5000);
-    status('Bild gespeichert (flussdiagramm.png).');
+    status('Bild gespeichert als «flussdiagramm.png» (Ordner «Downloads»). Laden Sie es jetzt bei der Frage hoch.');
   }).catch(function(){ status('Das Bild konnte nicht erzeugt werden.'); });
 };
 
@@ -689,9 +689,12 @@ Array.prototype.forEach.call(document.querySelectorAll('header button'), functio
 });
 
 // Exam mode (?pruefung): only the code hand-in, no image buttons (downloads are blocked in SEB).
+// Exam mode (?pruefung): hand-in = download the picture, then upload it in the exam.
+// (exam.net blocks copy & paste in exams; downloads work if "Student uploads – via computer files" is on.)
 if (/[?&]pruefung\b/.test(location.search)){
-  document.getElementById('gImg').style.display = 'none';
-  document.getElementById('bCopyCode').style.display = 'none';
+  ['bCopyImg','bHandImg','bCopyCode'].forEach(function(id){ document.getElementById(id).style.display = 'none'; });
+  var dl = document.getElementById('bDownload');
+  dl.textContent = 'Bild für die Abgabe speichern'; dl.classList.add('on');
 }
 
 // ---------- start ----------
