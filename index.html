@@ -624,13 +624,29 @@ function downloadBlob(blob, name){
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(function(){ URL.revokeObjectURL(a.href); }, 5000);
 }
+// SEB for macOS cannot fetch blob: URLs ("unsupported URL"); a data: URL carries the file itself.
+function downloadAsDataURL(blob, name){
+  return new Promise(function(resolve, reject){
+    var r = new FileReader();
+    r.onload = function(){
+      var a = document.createElement('a');
+      a.href = String(r.result).replace(/^data:[^;,]*/, 'data:application/octet-stream');
+      a.download = name;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      resolve();
+    };
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
 var PDF_MODE = /[?&]pruefung\b/.test(location.search);
 
 document.getElementById('bDownload').onclick = function(){
   if (!requireContent()) return;
   if (PDF_MODE){
     jpegFromDiagram().then(function(jpg){
-      downloadBlob(buildPdf(jpg), 'flussdiagramm.pdf');
+      return downloadAsDataURL(buildPdf(jpg), 'flussdiagramm.pdf');
+    }).then(function(){
       status('Gespeichert als «flussdiagramm.pdf» (Ordner «Downloads»). Laden Sie die Datei jetzt bei der Frage hoch.');
     }).catch(function(){ status('Das PDF konnte nicht erzeugt werden.'); });
     return;
