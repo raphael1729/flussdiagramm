@@ -625,12 +625,12 @@ function downloadBlob(blob, name){
   setTimeout(function(){ URL.revokeObjectURL(a.href); }, 5000);
 }
 // SEB for macOS cannot fetch blob: URLs ("unsupported URL"); a data: URL carries the file itself.
-function downloadAsDataURL(blob, name){
+function downloadAsDataURL(blob, name, mime){
   return new Promise(function(resolve, reject){
     var r = new FileReader();
     r.onload = function(){
       var a = document.createElement('a');
-      a.href = String(r.result).replace(/^data:[^;,]*/, 'data:application/octet-stream');
+      a.href = String(r.result).replace(/^data:[^;,]*/, 'data:' + (mime || 'application/octet-stream'));
       a.download = name;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       resolve();
@@ -770,6 +770,19 @@ if (/[?&]pruefung\b/.test(location.search)){
   ['bCopyImg','bHandImg','bCopyCode'].forEach(function(id){ document.getElementById(id).style.display = 'none'; });
   var dl = document.getElementById('bDownload');
   dl.textContent = 'PDF für die Abgabe speichern'; dl.title = 'Diagramm als PDF-Datei speichern'; dl.classList.add('on');
+  // TEMPORARY (10.11.): three variants to find out which one SEB saves with the .pdf extension
+  [['A','application/pdf'],['B','application/x-pdf'],['C','application/octet-stream']].forEach(function(v){
+    var b = document.createElement('button');
+    b.textContent = 'Test ' + v[0]; b.title = v[1];
+    b.addEventListener('mousedown', function(ev){ ev.preventDefault(); });
+    b.onclick = function(){
+      if (!requireContent()) return;
+      jpegFromDiagram().then(function(jpg){ return downloadAsDataURL(buildPdf(jpg), 'flussdiagramm-' + v[0] + '.pdf', v[1]); })
+        .then(function(){ status('Test ' + v[0] + ' gespeichert.'); })
+        .catch(function(){ status('Test ' + v[0] + ': Fehler.'); });
+    };
+    dl.parentNode.appendChild(b);
+  });
 }
 
 // ---------- start ----------
