@@ -615,8 +615,12 @@ function buildPdf(jpg){
   var xref = len, xr = 'xref\n0 6\n0000000000 65535 f \n';
   for (var n=1;n<=5;n++) xr += String(offsets[n]).padStart(10,'0')+' 00000 n \n';
   push(xr + 'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF\n');
-  // octet-stream, not application/pdf: SEB (WebKit) would otherwise show the PDF inline instead of saving it
-  return new Blob(parts, {type:'application/octet-stream'});
+  // Tested in SEB for macOS (10.11.2026):
+  //  blob: + application/pdf        → shown inline, not saved
+  //  blob: + application/octet-stream → "unsupported URL"
+  //  data: URL (any type)            → saved as "Untitled_…" without .pdf
+  //  blob: + application/x-pdf      → saved as flussdiagramm.pdf, upload works  ✓
+  return new Blob(parts, {type:'application/x-pdf'});
 }
 function downloadBlob(blob, name){
   var a = document.createElement('a');
@@ -624,28 +628,13 @@ function downloadBlob(blob, name){
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(function(){ URL.revokeObjectURL(a.href); }, 5000);
 }
-// SEB for macOS cannot fetch blob: URLs ("unsupported URL"); a data: URL carries the file itself.
-function downloadAsDataURL(blob, name, mime){
-  return new Promise(function(resolve, reject){
-    var r = new FileReader();
-    r.onload = function(){
-      var a = document.createElement('a');
-      a.href = String(r.result).replace(/^data:[^;,]*/, 'data:' + (mime || 'application/octet-stream'));
-      a.download = name;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      resolve();
-    };
-    r.onerror = reject;
-    r.readAsDataURL(blob);
-  });
-}
 var PDF_MODE = /[?&]pruefung\b/.test(location.search);
 
 document.getElementById('bDownload').onclick = function(){
   if (!requireContent()) return;
   if (PDF_MODE){
     jpegFromDiagram().then(function(jpg){
-      return downloadAsDataURL(buildPdf(jpg), 'flussdiagramm.pdf');
+      downloadBlob(buildPdf(jpg), 'flussdiagramm.pdf');
     }).then(function(){
       status('Gespeichert als «flussdiagramm.pdf» (Ordner «Downloads»). Laden Sie die Datei jetzt bei der Frage hoch.');
     }).catch(function(){ status('Das PDF konnte nicht erzeugt werden.'); });
@@ -770,23 +759,6 @@ if (/[?&]pruefung\b/.test(location.search)){
   ['bCopyImg','bHandImg','bCopyCode'].forEach(function(id){ document.getElementById(id).style.display = 'none'; });
   var dl = document.getElementById('bDownload');
   dl.textContent = 'PDF für die Abgabe speichern'; dl.title = 'Diagramm als PDF-Datei speichern'; dl.classList.add('on');
-  // TEMPORARY (10.11.): data: URLs lose the file name in SEB ("Untitled_…").
-  // The PNG download (blob: URL, type image/png) kept its name, so try that route for the PDF.
-  [['D','image/png'],['E','application/x-pdf']].forEach(function(v){
-    var b = document.createElement('button');
-    b.textContent = 'Test ' + v[0]; b.title = v[1];
-    b.addEventListener('mousedown', function(ev){ ev.preventDefault(); });
-    b.onclick = function(){
-      if (!requireContent()) return;
-      jpegFromDiagram().then(function(jpg){
-        var pdf = buildPdf(jpg);
-        downloadBlob(new Blob([pdf], {type:v[1]}), 'flussdiagramm-' + v[0] + '.pdf');
-      })
-        .then(function(){ status('Test ' + v[0] + ' gespeichert.'); })
-        .catch(function(){ status('Test ' + v[0] + ': Fehler.'); });
-    };
-    dl.parentNode.appendChild(b);
-  });
 }
 
 // ---------- start ----------
